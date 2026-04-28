@@ -1,10 +1,20 @@
 import argparse
 import time
+from typing import Optional
 
 import cv2
 import numpy as np
 
-from pothole_edge import Detection, PotholeDetector, YOLOv8Detector
+from pothole_edge import (
+    Detection,
+    DetectionRecord,
+    FlaskGPSProvider,
+    GPSProvider,
+    HardwareGPSProvider,
+    LTEGPSProvider,
+    PotholeDetector,
+    YOLOv8Detector,
+)
 
 # ── 설정값 ──────────────────────────────────────────────────────────────────
 MODEL_PATH = "bestv8m.pt"
@@ -33,7 +43,29 @@ def _draw(frame: np.ndarray, detections: list[Detection]) -> np.ndarray:
     return frame
 
 
-def run_webcam(detector: PotholeDetector) -> None:
+def _log_record(record: DetectionRecord) -> None:
+    """감지 레코드를 콘솔에 출력한다. 로그 표준화 전 임시 출력."""
+    det = record.detection
+    if record.gps:
+        gps_str = (
+            f"lat={record.gps.latitude:.6f}  lon={record.gps.longitude:.6f}"
+            f"  speed={record.gps.speed:.1f}km/h"
+        )
+    else:
+        gps_str = "GPS=없음"
+    print(f"[감지] conf={det.confidence:.2f}  bbox=({det.x1:.0f},{det.y1:.0f},{det.x2:.0f},{det.y2:.0f})  {gps_str}")
+
+
+def _make_records(detections: list[Detection], gps_provider: Optional[GPSProvider]) -> list[DetectionRecord]:
+    """감지 결과 목록을 현재 GPS 스냅샷과 묶어 레코드 목록으로 변환한다.
+
+    GPS는 여러 감지가 동시에 발생해도 동일한 시점 스냅샷을 공유한다.
+    """
+    gps = gps_provider.get() if gps_provider else None
+    return [DetectionRecord(detection=det, gps=gps) for det in detections]
+
+
+def run_webcam(detector: PotholeDetector, gps_provider: Optional[GPSProvider] = None) -> None:
     """웹캠 스트림을 받아 포트홀 감지 루프를 실행한다."""
     cap = cv2.VideoCapture(0)
     # 버퍼를 1로 고정해 항상 최신 프레임을 처리한다.
@@ -59,6 +91,8 @@ def run_webcam(detector: PotholeDetector) -> None:
                 if last_detections:
                     # 포트홀이 감지되면 쿨다운 시작 — 동일 포트홀 반복 처리 방지
                     cooldown_until = now + COOLDOWN_SEC
+                    for record in _make_records(last_detections, gps_provider):
+                        _log_record(record)
 
             if not HEADLESS:
                 annotated = _draw(frame.copy(), last_detections)
@@ -72,27 +106,36 @@ def run_webcam(detector: PotholeDetector) -> None:
             cv2.destroyAllWindows()
 
 
-def run_image(detector: PotholeDetector, image_path: str) -> None:
-    """이미지 파일 한 장에 대해 감지를 수행하고 결과 창을 표시한다."""
+def run_image(
+    detector: PotholeDetector,
+    image_path: str,
+    gps_provider: Optional[GPSProvider] = None,
+) -> None:
+    """이미지 파일 한 장에 대해 감지를 수행하고 결과를 출력한다."""
     frame = cv2.imread(image_path)
     if frame is None:
         print(f"이미지를 불러올 수 없습니다: {image_path}")
         return
 
     detections = detector.detect(frame)
-    annotated = _draw(frame, detections)
+    records = _make_records(detections, gps_provider)
 
-    print(f"감지 결과: {len(detections)}개")
-    for det in detections:
-        print(f"  confidence={det.confidence:.2f}  bbox=({det.x1:.0f},{det.y1:.0f},{det.x2:.0f},{det.y2:.0f})")
+    print(f"감지 결과: {len(records)}개")
+    for record in records:
+        _log_record(record)
 
     if not HEADLESS:
-        cv2.imshow("Pothole Detection - Image", annotated)
+        cv2.imshow("Pothole Detection - Image", _draw(frame, detections))
         cv2.waitKey(0)  # 아무 키나 누를 때까지 창 유지
         cv2.destroyAllWindows()
 
 
-def run_video(detector: PotholeDetector, video_path: str, output_path: str = "output.mp4") -> None:
+def run_video(
+    detector: PotholeDetector,
+    video_path: str,
+    output_path: str = "output.mp4",
+    gps_provider: Optional[GPSProvider] = None,
+) -> None:
     """동영상 파일을 프레임 단위로 감지해 결과 동영상을 저장한다."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -117,18 +160,20 @@ def run_video(detector: PotholeDetector, video_path: str, output_path: str = "ou
 
             frame_count += 1
             detections = detector.detect(frame)
+
             if detections:
                 detection_count += len(detections)
+                for record in _make_records(detections, gps_provider):
+                    _log_record(record)
 
-            annotated = _draw(frame, detections)
-            out.write(annotated)
+            out.write(_draw(frame, detections))
 
             # 100프레임마다 진행률 출력
             if frame_count % 100 == 0:
                 print(f"  {frame_count}/{total_frames} 프레임 처리 중...")
 
             if not HEADLESS:
-                cv2.imshow("Pothole Detection - Video", annotated)
+                cv2.imshow("Pothole Detection - Video", _draw(frame.copy(), detections))
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
     finally:
@@ -140,15 +185,32 @@ def run_video(detector: PotholeDetector, video_path: str, output_path: str = "ou
     print(f"완료: {frame_count}프레임 처리, 총 감지 {detection_count}건 → {output_path}")
 
 
+def _build_gps_provider(args: argparse.Namespace) -> Optional[GPSProvider]:
+    """CLI 인자로부터 GPS 프로바이더를 생성한다. --gps 미지정 시 None 반환."""
+    if args.gps == "flask":
+        return FlaskGPSProvider(args.gps_url)
+    elif args.gps == "lte":
+        return LTEGPSProvider(args.gps_port or "/dev/ttyUSB0")
+    elif args.gps == "hardware":
+        return HardwareGPSProvider(args.gps_port or "/dev/ttyAMA0")
+    return None
+
+
 # TODO: 로그 표준화
-# TODO: main 함수 분할
-# TODO: CLI 개선 (예: 감지 모드별로 서브커맨드, 옵션 추가)
 # TODO: 예외 처리 강화 (파일 입출력, 카메라 접근 등)
-# TODO: 멀티스레딩/멀티프로세싱 도입 (웹캠 프레임 캡처와 감지 병렬화)
-# TODO: 객체지향 구조 개선 (예: Detector 인터페이스 확장, 감지 결과 객체화)
+# TODO: Producer-Consumer 구조 도입 (웹캠 캡처·추론 스레드 분리)
 # TODO: 설정값을 config 파일이나 환경변수로 분리
 def main() -> None:
     parser = argparse.ArgumentParser(description="포트홀 감지")
+
+    # GPS 옵션은 모든 모드에서 공통으로 사용
+    parser.add_argument("--gps", choices=["flask", "lte", "hardware"], default=None,
+                        help="GPS 소스 유형")
+    parser.add_argument("--gps-url", default="http://192.168.0.100:5000/gps",
+                        help="Flask GPS 서버 URL (--gps flask 시 사용)")
+    parser.add_argument("--gps-port", default=None,
+                        help="시리얼 포트 (--gps lte/hardware 시 사용)")
+
     subparsers = parser.add_subparsers(dest="mode", required=True)
 
     subparsers.add_parser("webcam", help="웹캠 실시간 감지")
@@ -162,30 +224,38 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    gps_provider = _build_gps_provider(args)
+    if gps_provider:
+        gps_provider.start(interval=1.0)
+        print(f"GPS 시작: {type(gps_provider).__name__}")
+
     detector = YOLOv8Detector(MODEL_PATH, conf_threshold=CONF_THRESHOLD, iou_threshold=IOU_THRESHOLD)
     print("Warming up model...")
     detector.warmup()
 
     if args.mode == "webcam":
         print("Starting webcam detection. Press 'q' to quit.")
-        run_webcam(detector)
+        run_webcam(detector, gps_provider)
     elif args.mode == "image":
-        run_image(detector, args.path)
+        run_image(detector, args.path, gps_provider)
     elif args.mode == "video":
-        run_video(detector, args.path, args.output)
+        run_video(detector, args.path, args.output, gps_provider)
 
 
 if __name__ == "__main__":
     main()
 
 """
-# 웹캠
-python main.py webcam
+사용 예시:
 
-# 이미지
-python main.py image pothole.jpg
+  python main.py webcam
+  python main.py webcam --gps flask --gps-url http://192.168.0.100:5000/gps
+  python main.py webcam --gps lte --gps-port /dev/ttyUSB0
+  python main.py webcam --gps hardware
 
-# 동영상
-python main.py video video.mp4
-python main.py video video.mp4 --output result.mp4
+  python main.py image pothole.jpg
+  python main.py image pothole.jpg --gps flask
+
+  python main.py video video.mp4
+  python main.py video video.mp4 --output result.mp4 --gps flask
 """

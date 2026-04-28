@@ -2,9 +2,25 @@
 
 ## 1. GPS 수신 및 소스 추상화
 - `GPSProvider` 추상 인터페이스로 GPS 소스를 추상화
-- 구현체: `FlaskGPSProvider`(스마트폰), `LTEGPSProvider`(LTE 모듈 내장 GPS), `HardwareGPSProvider`(별도 모듈)
-- GPS 데이터 전역 변수 접근 시 Lock으로 스레드 안전성 보장
-- GPS 신호 소실 시 극소 해상도 프레임 차이로 정지 여부 보완 판단
+  - 반환 타입을 통일된 `GPSData` 데이터 클래스로 정의 (latitude, longitude, speed, timestamp)
+  - `start(interval)`: 백그라운드 폴링 스레드 시작 (daemon=True, 메인 종료 시 자동 종료)
+  - `get()`: 감지 루프에서 최신 GPS 데이터를 스레드 안전하게 읽기
+  - `_fetch()`: 각 구현체가 오버라이드하는 실제 데이터 수신 메서드
+- 구현체
+  - `FlaskGPSProvider`: 스마트폰 Flask 서버를 HTTP 폴링 (requests, timeout=2s)
+  - `LTEGPSProvider`: LTE 모듈 내장 GPS를 시리얼 NMEA 파싱 (기본 포트: `/dev/ttyUSB0`)
+  - `HardwareGPSProvider`: 별도 GPS 모듈을 시리얼 NMEA 파싱 (기본 포트: `/dev/ttyAMA0`)
+  - `LTEGPSProvider` / `HardwareGPSProvider`는 공통 베이스(`_NMEASerialProvider`)를 상속, 포트 오류 시 다음 폴링 주기에 자동 재연결
+- NMEA GPRMC 문장 파싱: 위경도(DDDMM.MMMM → 십진수 도 변환), 속도(knots → km/h 변환), Active 상태일 때만 유효 처리
+- GPS 데이터 접근 시 `threading.Lock`으로 스레드 안전성 보장
+- GPS 수신 실패 처리
+  - `_fetch()` 예외 발생 시 `None` 반환, `update()`에서 `None`이면 `_latest` 갱신하지 않음
+  - 일시적 오류: 마지막으로 성공한 GPS 값 유지
+  - 한 번도 수신 못 한 경우: `get()` → `None`
+  - 감지 레코드(`DetectionRecord`)의 `gps` 필드가 `None`으로 기록됨
+- GPS 신호 소실 시 `FrameMotionDetector`로 정지 여부 보완 판단
+  - 32×32 썸네일로 다운샘플링 후 이전 프레임과 평균 픽셀 차이 비교
+  - 차이가 임계값 미만이면 정지로 판단 (연산 비용 최소화)
 
 ## 2. 속도 기반 감지 제어 (신규)
 - GPS speed 기반으로 추론 동작을 동적으로 조정

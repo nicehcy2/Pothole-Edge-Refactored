@@ -1,7 +1,14 @@
 # YOLOv8 및 관련 라이브러리
 ultralytics==8.2.83
 
-#boto3
+# 영상 처리
 opencv-python
 numpy
-#requests
+
+# GPS (FlaskGPSProvider)
+requests
+
+# GPS (LTEGPSProvider, HardwareGPSProvider)
+pyserial
+
+#boto3
