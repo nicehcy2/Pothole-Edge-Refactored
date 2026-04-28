@@ -244,6 +244,8 @@ def _build_gps_provider(args: argparse.Namespace) -> Optional[GPSProvider]:
 # TODO: 예외 처리 강화 (파일 입출력, 카메라 접근 등)
 # TODO: Producer-Consumer 구조 도입 (웹캠 캡처·추론 스레드 분리)
 # TODO: 설정값을 config 파일이나 환경변수로 분리
+# TODO: 단순히 신뢰도 기반이 아니라 진짜 포트홀 처럼 나온거, 사진도 잘나온거
+# TODO: 지금은 최적의 사진 1장이지만 조금 늘려주는게 맞는듯
 def main() -> None:
     parser = argparse.ArgumentParser(description="포트홀 감지")
 
