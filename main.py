@@ -177,3 +177,15 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+"""
+# 웹캠
+python main.py webcam
+
+# 이미지
+python main.py image pothole.jpg
+
+# 동영상
+python main.py video video.mp4
+python main.py video video.mp4 --output result.mp4
+"""
