@@ -14,3 +14,19 @@ __pycache__/
 
 # Output files
 output.mp4
+
+# image files
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tiff
+*.gif
+
+# video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.wmv
