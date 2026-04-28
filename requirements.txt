@@ -5,10 +5,14 @@ ultralytics==8.2.83
 opencv-python
 numpy
 
-# GPS (FlaskGPSProvider)
+# GPS (FlaskGPSProvider), 백엔드 API 호출
 requests
 
 # GPS (LTEGPSProvider, HardwareGPSProvider)
 pyserial
 
-#boto3
+# 지오해시 계산
+pygeohash
+
+# S3 업로드
+boto3

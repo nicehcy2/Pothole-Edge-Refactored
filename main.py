@@ -15,6 +15,14 @@ from pothole_edge import (
     PotholeDetector,
     YOLOv8Detector,
 )
+from pothole_edge.uploader import (
+    compute_geohash,
+    is_geohash_registered,
+    register_pothole,
+    save_detection_info,
+    select_best_image,
+    upload_to_s3,
+)
 
 # ── 설정값 ──────────────────────────────────────────────────────────────────
 MODEL_PATH = "bestv8m.pt"
@@ -23,6 +31,9 @@ IOU_THRESHOLD = 0.45   # NMS 겹침 판단 기준
 FRAME_SKIP = 3         # N프레임마다 한 번 추론 (CPU/GPU 부하 절감, 웹캠 전용)
 COOLDOWN_SEC = 3.0     # 감지 후 N초간 추론 중단 (같은 포트홀 중복 처리 방지, 웹캠 전용)
 HEADLESS = False       # 모니터 없는 엣지 환경에서 True로 설정
+GEOHASH_PRECISION = 7  # 지오해시 정밀도 (숫자가 클수록 세밀한 구역)
+API_BASE_URL = "http://localhost:8080"  # 백엔드 서버 주소
+OUTPUT_DIR = "detections"              # 감지 프레임 저장 루트 디렉토리
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -65,6 +76,38 @@ def _make_records(detections: list[Detection], gps_provider: Optional[GPSProvide
     return [DetectionRecord(detection=det, gps=gps) for det in detections]
 
 
+def _handle_detection(frame: np.ndarray, record: DetectionRecord) -> None:
+    """감지 레코드 1건에 대해 중복 확인 → 저장 → 업로드 → 등록 흐름을 처리한다."""
+    if record.gps is None:
+        return
+
+    gh = compute_geohash(record.gps.latitude, record.gps.longitude, GEOHASH_PRECISION)
+
+    # 이미 등록된 지오해시면 S3 업로드 및 DB 등록 스킵
+    if is_geohash_registered(gh, API_BASE_URL):
+        print(f"[스킵] 이미 등록된 지오해시: {gh}")
+        return
+
+    # 감지 프레임을 지오해시 폴더에 저장
+    path = save_detection_info(frame, record.detection.confidence, gh, OUTPUT_DIR)
+    if path is None:  # 저장 실패 시 업로드 진행하지 않음
+        print(f"[오류] 프레임 저장 실패: {gh}")
+        return
+
+    # 같은 지오해시 폴더 내에서 신뢰도 가장 높은 이미지 선택
+    best = select_best_image(gh, OUTPUT_DIR)
+    if best is None:
+        return
+
+    image_url = upload_to_s3(best, API_BASE_URL)
+    if image_url is None:
+        print(f"[오류] S3 업로드 실패: {gh}")
+        return
+
+    if not register_pothole(record.gps.latitude, record.gps.longitude, image_url, gh, API_BASE_URL):
+        print(f"[오류] 포트홀 등록 실패: {gh}")
+
+
 def run_webcam(detector: PotholeDetector, gps_provider: Optional[GPSProvider] = None) -> None:
     """웹캠 스트림을 받아 포트홀 감지 루프를 실행한다."""
     cap = cv2.VideoCapture(0)
@@ -93,6 +136,7 @@ def run_webcam(detector: PotholeDetector, gps_provider: Optional[GPSProvider] = 
                     cooldown_until = now + COOLDOWN_SEC
                     for record in _make_records(last_detections, gps_provider):
                         _log_record(record)
+                        _handle_detection(frame, record)
 
             if not HEADLESS:
                 annotated = _draw(frame.copy(), last_detections)
