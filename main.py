@@ -246,6 +246,7 @@ def _build_gps_provider(args: argparse.Namespace) -> Optional[GPSProvider]:
 # TODO: 설정값을 config 파일이나 환경변수로 분리
 # TODO: 단순히 신뢰도 기반이 아니라 진짜 포트홀 처럼 나온거, 사진도 잘나온거
 # TODO: 지금은 최적의 사진 1장이지만 조금 늘려주는게 맞는듯
+# TODO: 매 프레임마다 포트홀을 DB에서 가져오는게 맞을까?
 def main() -> None:
     parser = argparse.ArgumentParser(description="포트홀 감지")
 
