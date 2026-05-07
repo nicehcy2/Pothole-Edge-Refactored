@@ -12,8 +12,11 @@ __pycache__/
 # *.pt
 *.pth
 
+# Input files
+input/*
+
 # Output files
-output.mp4
+output/*
 
 # image files
 *.jpg
