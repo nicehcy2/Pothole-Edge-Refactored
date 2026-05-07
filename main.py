@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 from typing import Optional
 
@@ -106,6 +107,11 @@ def _handle_detection(frame: np.ndarray, record: DetectionRecord) -> None:
 
     if not register_pothole(record.gps.latitude, record.gps.longitude, image_url, gh, API_BASE_URL):
         print(f"[오류] 포트홀 등록 실패: {gh}")
+        
+def _handle_detection_in_video(frame: np.ndarray, record: DetectionRecord, output_path: str) -> None:
+    
+    result = cv2.imwrite(output_path, frame)
+    print(f"[저장] 감지 프레임 저장: {output_path}, 성공: {result}")
 
 
 def run_webcam(detector: PotholeDetector, gps_provider: Optional[GPSProvider] = None) -> None:
@@ -150,6 +156,57 @@ def run_webcam(detector: PotholeDetector, gps_provider: Optional[GPSProvider] = 
             cv2.destroyAllWindows()
 
 
+def run_video(
+    detector: PotholeDetector,
+    video_path: str,
+    output_dir: str = "output",
+    gps_provider: Optional[GPSProvider] = None,
+) -> None:
+    """동영상 파일을 프레임 단위로 감지."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"동영상을 불러올 수 없습니다: {video_path}")
+        return
+
+    #fps = int(cap.get(cv2.CAP_PROP_FPS))
+    #width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    #height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    frame_count = 0
+    detection_count = 0
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame_count += 1
+            detections = detector.detect(frame)
+
+            if detections:
+                detection_count += len(detections)
+                for record in _make_records(detections, gps_provider):
+                    _log_record(record)
+                    _handle_detection_in_video(frame, record, f"{output_dir}/detection_{int(time.time() * 1000)}.jpg")
+
+            # 100프레임마다 진행률 출력
+            if frame_count % 100 == 0:
+                print(f"  {frame_count}/{total_frames} 프레임 처리 중...")
+
+            if not HEADLESS:
+                cv2.imshow("Pothole Detection - Video", _draw(frame.copy(), detections))
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+    finally:
+        cap.release()
+        if not HEADLESS:
+            cv2.destroyAllWindows()
+
+    print(f"완료: {frame_count}프레임 처리, 총 감지 {detection_count}건")
+
+
 def run_image(
     detector: PotholeDetector,
     image_path: str,
@@ -172,62 +229,7 @@ def run_image(
         cv2.imshow("Pothole Detection - Image", _draw(frame, detections))
         cv2.waitKey(0)  # 아무 키나 누를 때까지 창 유지
         cv2.destroyAllWindows()
-
-
-def run_video(
-    detector: PotholeDetector,
-    video_path: str,
-    output_path: str = "output.mp4",
-    gps_provider: Optional[GPSProvider] = None,
-) -> None:
-    """동영상 파일을 프레임 단위로 감지해 결과 동영상을 저장한다."""
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"동영상을 불러올 수 없습니다: {video_path}")
-        return
-
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
-
-    frame_count = 0
-    detection_count = 0
-
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            frame_count += 1
-            detections = detector.detect(frame)
-
-            if detections:
-                detection_count += len(detections)
-                for record in _make_records(detections, gps_provider):
-                    _log_record(record)
-
-            out.write(_draw(frame, detections))
-
-            # 100프레임마다 진행률 출력
-            if frame_count % 100 == 0:
-                print(f"  {frame_count}/{total_frames} 프레임 처리 중...")
-
-            if not HEADLESS:
-                cv2.imshow("Pothole Detection - Video", _draw(frame.copy(), detections))
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-    finally:
-        cap.release()
-        out.release()
-        if not HEADLESS:
-            cv2.destroyAllWindows()
-
-    print(f"완료: {frame_count}프레임 처리, 총 감지 {detection_count}건 → {output_path}")
-
+        
 
 def _build_gps_provider(args: argparse.Namespace) -> Optional[GPSProvider]:
     """CLI 인자로부터 GPS 프로바이더를 생성한다. --gps 미지정 시 None 반환."""
@@ -267,7 +269,7 @@ def main() -> None:
 
     video_parser = subparsers.add_parser("video", help="동영상 파일 감지")
     video_parser.add_argument("path", help="동영상 파일 경로")
-    video_parser.add_argument("--output", default="output.mp4", help="출력 파일 경로 (기본: output.mp4)")
+    video_parser.add_argument("--output", default="output", help="출력 파일 경로 (기본: output)")
 
     args = parser.parse_args()
 
