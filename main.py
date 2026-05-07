@@ -187,9 +187,10 @@ def run_video(
 
             if detections:
                 detection_count += len(detections)
+                annotated = _draw(frame.copy(), detections)  # 바운딩 박스 그린 프레임
                 for record in _make_records(detections, gps_provider):
                     _log_record(record)
-                    _handle_detection_in_video(frame, record, f"{output_dir}/detection_{int(time.time() * 1000)}.jpg")
+                    _handle_detection_in_video(annotated, record, f"{output_dir}/detection_{int(time.time() * 1000)}.jpg")
 
             # 100프레임마다 진행률 출력
             if frame_count % 100 == 0:
