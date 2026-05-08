@@ -82,7 +82,7 @@ class YOLOv8Detector(PotholeDetector):
         """
         # self._model(frame, ...) : YOLO.__call__ 을 호출해 프레임을 모델에 입력하고 추론 결과를 받는다
         # half=self._half : 가중치가 FP16이면 입력 frame도 FP16으로 변환해 타입 불일치 오류를 방지한다
-        results = self._model(frame, conf=self._conf, iou=self._iou, verbose=False, device=self._device, half=self._half)
+        results = self._model(frame, conf=self._conf, iou=self._iou, verbose=False, device=self._device)
         detections: list[Detection] = []
         for result in results:
             for box in result.boxes:
