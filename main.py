@@ -175,6 +175,7 @@ def run_video(
 
     frame_count = 0
     detection_count = 0
+    start_time = time.time()
 
     try:
         while True:
@@ -205,7 +206,8 @@ def run_video(
         if not HEADLESS:
             cv2.destroyAllWindows()
 
-    print(f"완료: {frame_count}프레임 처리, 총 감지 {detection_count}건")
+    elapsed = time.time() - start_time
+    print(f"완료: {frame_count}프레임 처리, 총 감지 {detection_count}건, 소요 시간: {elapsed:.1f}초")
 
 
 def run_image(
