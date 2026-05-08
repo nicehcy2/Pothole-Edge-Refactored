@@ -6,6 +6,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from dotenv import load_dotenv
 from pothole_edge import (
     Detection,
     DetectionRecord,
@@ -26,15 +27,15 @@ from pothole_edge.uploader import (
 )
 
 # ── 설정값 ──────────────────────────────────────────────────────────────────
-MODEL_PATH = "bestv8m.pt" # TensorRT 적용 후 "bestv8m.engine"
-CONF_THRESHOLD = 0.3   # 이 신뢰도 미만의 감지 결과는 버린다
-IOU_THRESHOLD = 0.45   # NMS 겹침 판단 기준
-FRAME_SKIP = 3         # N프레임마다 한 번 추론 (CPU/GPU 부하 절감, 웹캠 전용)
-COOLDOWN_SEC = 3.0     # 감지 후 N초간 추론 중단 (같은 포트홀 중복 처리 방지, 웹캠 전용)
-HEADLESS = False       # 모니터 없는 엣지 환경에서 True로 설정
-GEOHASH_PRECISION = 7  # 지오해시 정밀도 (숫자가 클수록 세밀한 구역)
-API_BASE_URL = "http://localhost:8080"  # 백엔드 서버 주소
-OUTPUT_DIR = "detections"              # 감지 프레임 저장 루트 디렉토리
+MODEL_PATH       = os.getenv("MODEL_PATH", "bestv8m.pt")
+CONF_THRESHOLD   = float(os.getenv("CONF_THRESHOLD", "0.3"))
+IOU_THRESHOLD    = float(os.getenv("IOU_THRESHOLD", "0.45"))
+FRAME_SKIP       = int(os.getenv("FRAME_SKIP", "3"))
+COOLDOWN_SEC     = float(os.getenv("COOLDOWN_SEC", "3.0"))
+HEADLESS         = os.getenv("HEADLESS", "false").lower() == "true"
+GEOHASH_PRECISION= int(os.getenv("GEOHASH_PRECISION", "7"))
+API_BASE_URL     = os.getenv("API_BASE_URL", "http://localhost:8080")
+OUTPUT_DIR       = os.getenv("OUTPUT_DIR", "detections")
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -248,8 +249,10 @@ def _build_gps_provider(args: argparse.Namespace) -> Optional[GPSProvider]:
 # TODO: 로그 표준화
 # TODO: 예외 처리 강화 (파일 입출력, 카메라 접근 등)
 # TODO: 설정값을 config 파일이나 환경변수로 분리
+
 # TODO: 단순히 신뢰도 기반이 아니라 진짜 포트홀 처럼 나온거, 사진도 잘나온거
 # TODO: 지금은 최적의 사진 1장이지만 조금 늘려주는게 맞는듯
+
 # TODO: 매 프레임마다 포트홀을 DB에서 가져오는게 맞을까?
 def main() -> None:
     parser = argparse.ArgumentParser(description="포트홀 감지")

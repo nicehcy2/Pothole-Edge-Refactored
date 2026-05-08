@@ -1,6 +1,6 @@
-# PyTorch - GPU 사용 시 아래 명령어로 별도 설치 (CUDA 버전은 본인 환경에 맞게)
+# PyTorch - For GPU support, install separately with CUDA version:
 # pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-# CPU 전용은 ultralytics 의존성으로 자동 설치됨
+# CPU-only version is installed automatically via ultralytics dependency
 
 # YOLOv8
 ultralytics==8.2.83
@@ -20,3 +20,6 @@ pygeohash
 
 # S3
 boto3
+
+# env
+python-dotenv
