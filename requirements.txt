@@ -1,18 +1,25 @@
-# YOLOv8 및 관련 라이브러리
+# PyTorch - For GPU support, install separately with CUDA version:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# CPU-only version is installed automatically via ultralytics dependency
+
+# YOLOv8
 ultralytics==8.2.83
 
-# 영상 처리
+# image processing
 opencv-python
 numpy
 
-# GPS (FlaskGPSProvider), 백엔드 API 호출
+# GPS (FlaskGPSProvider)
 requests
 
 # GPS (LTEGPSProvider, HardwareGPSProvider)
 pyserial
 
-# 지오해시 계산
+# geohash
 pygeohash
 
-# S3 업로드
+# S3
 boto3
+
+# env
+python-dotenv

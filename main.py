@@ -1,10 +1,12 @@
 import argparse
+import os
 import time
 from typing import Optional
 
 import cv2
 import numpy as np
 
+from dotenv import load_dotenv
 from pothole_edge import (
     Detection,
     DetectionRecord,
@@ -25,15 +27,15 @@ from pothole_edge.uploader import (
 )
 
 # ── 설정값 ──────────────────────────────────────────────────────────────────
-MODEL_PATH = "bestv8m.pt"
-CONF_THRESHOLD = 0.3   # 이 신뢰도 미만의 감지 결과는 버린다
-IOU_THRESHOLD = 0.45   # NMS 겹침 판단 기준
-FRAME_SKIP = 3         # N프레임마다 한 번 추론 (CPU/GPU 부하 절감, 웹캠 전용)
-COOLDOWN_SEC = 3.0     # 감지 후 N초간 추론 중단 (같은 포트홀 중복 처리 방지, 웹캠 전용)
-HEADLESS = False       # 모니터 없는 엣지 환경에서 True로 설정
-GEOHASH_PRECISION = 7  # 지오해시 정밀도 (숫자가 클수록 세밀한 구역)
-API_BASE_URL = "http://localhost:8080"  # 백엔드 서버 주소
-OUTPUT_DIR = "detections"              # 감지 프레임 저장 루트 디렉토리
+MODEL_PATH       = os.getenv("MODEL_PATH", "bestv8m.pt")
+CONF_THRESHOLD   = float(os.getenv("CONF_THRESHOLD", "0.3"))
+IOU_THRESHOLD    = float(os.getenv("IOU_THRESHOLD", "0.45"))
+FRAME_SKIP       = int(os.getenv("FRAME_SKIP", "3"))
+COOLDOWN_SEC     = float(os.getenv("COOLDOWN_SEC", "3.0"))
+HEADLESS         = os.getenv("HEADLESS", "false").lower() == "true"
+GEOHASH_PRECISION= int(os.getenv("GEOHASH_PRECISION", "7"))
+API_BASE_URL     = os.getenv("API_BASE_URL", "http://localhost:8080")
+OUTPUT_DIR       = os.getenv("OUTPUT_DIR", "detections")
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -106,6 +108,11 @@ def _handle_detection(frame: np.ndarray, record: DetectionRecord) -> None:
 
     if not register_pothole(record.gps.latitude, record.gps.longitude, image_url, gh, API_BASE_URL):
         print(f"[오류] 포트홀 등록 실패: {gh}")
+        
+def _handle_detection_in_video(frame: np.ndarray, record: DetectionRecord, output_path: str) -> None:
+    
+    result = cv2.imwrite(output_path, frame)
+    print(f"[저장] 감지 프레임 저장: {output_path}, 성공: {result}")
 
 
 def run_webcam(detector: PotholeDetector, gps_provider: Optional[GPSProvider] = None) -> None:
@@ -150,6 +157,60 @@ def run_webcam(detector: PotholeDetector, gps_provider: Optional[GPSProvider] = 
             cv2.destroyAllWindows()
 
 
+def run_video(
+    detector: PotholeDetector,
+    video_path: str,
+    output_dir: str = "output",
+    gps_provider: Optional[GPSProvider] = None,
+) -> None:
+    """동영상 파일을 프레임 단위로 감지."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"동영상을 불러올 수 없습니다: {video_path}")
+        return
+
+    #fps = int(cap.get(cv2.CAP_PROP_FPS))
+    #width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    #height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    frame_count = 0
+    detection_count = 0
+    start_time = time.time()
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame_count += 1
+            detections = detector.detect(frame)
+
+            if detections:
+                detection_count += len(detections)
+                annotated = _draw(frame.copy(), detections)  # 바운딩 박스 그린 프레임
+                for record in _make_records(detections, gps_provider):
+                    _log_record(record)
+                    _handle_detection_in_video(annotated, record, f"{output_dir}/detection_{int(time.time() * 1000)}.jpg")
+
+            # 100프레임마다 진행률 출력
+            if frame_count % 100 == 0:
+                print(f"  {frame_count}/{total_frames} 프레임 처리 중...")
+
+            if not HEADLESS:
+                cv2.imshow("Pothole Detection - Video", _draw(frame.copy(), detections))
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+    finally:
+        cap.release()
+        if not HEADLESS:
+            cv2.destroyAllWindows()
+
+    elapsed = time.time() - start_time
+    print(f"완료: {frame_count}프레임 처리, 총 감지 {detection_count}건, 소요 시간: {elapsed:.1f}초")
+
+
 def run_image(
     detector: PotholeDetector,
     image_path: str,
@@ -172,62 +233,7 @@ def run_image(
         cv2.imshow("Pothole Detection - Image", _draw(frame, detections))
         cv2.waitKey(0)  # 아무 키나 누를 때까지 창 유지
         cv2.destroyAllWindows()
-
-
-def run_video(
-    detector: PotholeDetector,
-    video_path: str,
-    output_path: str = "output.mp4",
-    gps_provider: Optional[GPSProvider] = None,
-) -> None:
-    """동영상 파일을 프레임 단위로 감지해 결과 동영상을 저장한다."""
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"동영상을 불러올 수 없습니다: {video_path}")
-        return
-
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
-
-    frame_count = 0
-    detection_count = 0
-
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            frame_count += 1
-            detections = detector.detect(frame)
-
-            if detections:
-                detection_count += len(detections)
-                for record in _make_records(detections, gps_provider):
-                    _log_record(record)
-
-            out.write(_draw(frame, detections))
-
-            # 100프레임마다 진행률 출력
-            if frame_count % 100 == 0:
-                print(f"  {frame_count}/{total_frames} 프레임 처리 중...")
-
-            if not HEADLESS:
-                cv2.imshow("Pothole Detection - Video", _draw(frame.copy(), detections))
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-    finally:
-        cap.release()
-        out.release()
-        if not HEADLESS:
-            cv2.destroyAllWindows()
-
-    print(f"완료: {frame_count}프레임 처리, 총 감지 {detection_count}건 → {output_path}")
-
+        
 
 def _build_gps_provider(args: argparse.Namespace) -> Optional[GPSProvider]:
     """CLI 인자로부터 GPS 프로바이더를 생성한다. --gps 미지정 시 None 반환."""
@@ -242,10 +248,10 @@ def _build_gps_provider(args: argparse.Namespace) -> Optional[GPSProvider]:
 
 # TODO: 로그 표준화
 # TODO: 예외 처리 강화 (파일 입출력, 카메라 접근 등)
-# TODO: Producer-Consumer 구조 도입 (웹캠 캡처·추론 스레드 분리)
-# TODO: 설정값을 config 파일이나 환경변수로 분리
+
 # TODO: 단순히 신뢰도 기반이 아니라 진짜 포트홀 처럼 나온거, 사진도 잘나온거
 # TODO: 지금은 최적의 사진 1장이지만 조금 늘려주는게 맞는듯
+
 # TODO: 매 프레임마다 포트홀을 DB에서 가져오는게 맞을까?
 def main() -> None:
     parser = argparse.ArgumentParser(description="포트홀 감지")
@@ -267,7 +273,7 @@ def main() -> None:
 
     video_parser = subparsers.add_parser("video", help="동영상 파일 감지")
     video_parser.add_argument("path", help="동영상 파일 경로")
-    video_parser.add_argument("--output", default="output.mp4", help="출력 파일 경로 (기본: output.mp4)")
+    video_parser.add_argument("--output", default="output", help="출력 파일 경로 (기본: output)")
 
     args = parser.parse_args()
 
