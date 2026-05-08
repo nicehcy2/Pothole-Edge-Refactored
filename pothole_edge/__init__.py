@@ -9,7 +9,6 @@ from pothole_edge.gps import (
 )
 from pothole_edge.record import DetectionRecord
 
-# TODO: 이건 무슨 코드일까?
 __all__ = [
     # detector
     "Detection",
