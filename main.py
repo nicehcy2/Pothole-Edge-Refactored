@@ -26,7 +26,7 @@ from pothole_edge.uploader import (
 )
 
 # ── 설정값 ──────────────────────────────────────────────────────────────────
-MODEL_PATH = "bestv8m.pt"
+MODEL_PATH = "bestv8m.pt" # TensorRT 적용 후 "bestv8m.engine"
 CONF_THRESHOLD = 0.3   # 이 신뢰도 미만의 감지 결과는 버린다
 IOU_THRESHOLD = 0.45   # NMS 겹침 판단 기준
 FRAME_SKIP = 3         # N프레임마다 한 번 추론 (CPU/GPU 부하 절감, 웹캠 전용)
@@ -247,7 +247,6 @@ def _build_gps_provider(args: argparse.Namespace) -> Optional[GPSProvider]:
 
 # TODO: 로그 표준화
 # TODO: 예외 처리 강화 (파일 입출력, 카메라 접근 등)
-# TODO: Producer-Consumer 구조 도입 (웹캠 캡처·추론 스레드 분리)
 # TODO: 설정값을 config 파일이나 환경변수로 분리
 # TODO: 단순히 신뢰도 기반이 아니라 진짜 포트홀 처럼 나온거, 사진도 잘나온거
 # TODO: 지금은 최적의 사진 1장이지만 조금 늘려주는게 맞는듯
