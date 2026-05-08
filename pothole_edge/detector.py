@@ -5,6 +5,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+import torch
+from ultralytics import YOLO
+
 
 @dataclass
 class Detection:
@@ -61,7 +64,13 @@ class YOLOv8Detector(PotholeDetector):
         """
         from ultralytics import YOLO
 
-        self._model = YOLO(model_path)
+        self._device = "cuda" if torch.cuda.is_available() else "cpu"  # GPU 있으면 "cuda", 없으면 "cpu"
+        self._half = self._device == "cuda"                            # FP16은 GPU에서만 지원
+        print(f"[Device] {self._device.upper()} | FP16: {self._half}")
+        self._model = YOLO(model_path)                                 # 모델 로드 (기본 CPU/FP32)
+        self._model.to(self._device)                                   # 가중치를 VRAM(GPU)으로 이동
+        if self._half:
+            self._model.half()                                         # 가중치를 FP32 → FP16으로 변환 (속도 2배, VRAM 절반)
         self._conf = conf_threshold
         self._iou = iou_threshold
 
@@ -71,7 +80,9 @@ class YOLOv8Detector(PotholeDetector):
         conf/iou threshold는 매 호출 시 모델에 직접 전달한다.
         verbose=False로 ultralytics의 콘솔 출력을 억제한다.
         """
-        results = self._model(frame, conf=self._conf, iou=self._iou, verbose=False)
+        # self._model(frame, ...) : YOLO.__call__ 을 호출해 프레임을 모델에 입력하고 추론 결과를 받는다
+        # half=self._half : 가중치가 FP16이면 입력 frame도 FP16으로 변환해 타입 불일치 오류를 방지한다
+        results = self._model(frame, conf=self._conf, iou=self._iou, verbose=False, device=self._device, half=self._half)
         detections: list[Detection] = []
         for result in results:
             for box in result.boxes:
