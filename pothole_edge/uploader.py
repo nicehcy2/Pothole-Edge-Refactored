@@ -17,7 +17,7 @@ def is_geohash_registered(geohash_str: str, api_base_url: str) -> bool:
     """백엔드 API로 지오해시 등록 여부를 조회한다. 오류 시 미등록으로 간주한다."""
     try:
         resp = requests.get(
-            f"{api_base_url}/api/potholes/geohash/{geohash_str}",
+            f"{api_base_url}/api/potholes/geohash?geohash={geohash_str}",
             timeout=3,
         )
         return resp.status_code == 200
