@@ -33,3 +33,5 @@ output/*
 *.mkv
 *.flv
 *.wmv
+
+# TODO: 운영 환경에서 .env도 gitignore에 추가
